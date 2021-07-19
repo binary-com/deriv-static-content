@@ -54,6 +54,23 @@ function toISOFormat(date) {
 
   return "";
 }
+
+function shouldOverwrite(new_utm_data, current_utm_data, has_all_params) {
+  if (!current_utm_data) {
+    return true;
+  }
+  else if (!new_utm_data) {
+    return false;
+  }
+  // Overwrite based on the order of priority
+  if(has_all_params) {
+    if (new_utm_data.utm_source.includes("affiliate")) return true; // 1. Affiliate tags
+    if (new_utm_data.utm_medium.includes("ppc") && !current_utm_data.utm_source.includes("affiliate")) return true; // 2. PPC tags
+    if (!current_utm_data.utm_medium.includes("ppc") && !current_utm_data.utm_source.includes("affiliate")) return true; // 3. Complete set of required tags
+  }
+  else if (Object.values(new_utm_data).length > Object.values(current_utm_data).length)return true; // 4. Everything else
+  return false;
+}
 /* end utility functions */
 
 (function initMarketingCookies() {
@@ -73,46 +90,37 @@ function toISOFormat(date) {
     "utm_campaign_id"
   ];
   const required_fields = ["utm_source", "utm_medium", "utm_campaign"];
-  let utm_data = {};
-
-  // When the user comes to the site with URL params
-  // if url is missing one of required fields, do nothing
   const has_all_params = required_fields.every((field) => searchParams.has(field))
+  let utm_data = {};
+  const current_utm_data = JSON.parse(getCookie("utm_data"))
 
-  if (has_all_params) {
-    
+  // If the user comes to the site for the first time without any URL params
+  // Only set the utm_source to referrer if the user does not have utm_data cookies stored
+  if (!getCookie("utm_data")) {
+
+    utm_data = {
+      utm_source: document.referrer ? document.referrer : null,
+    };
+  }
+
+  // If the user has any new UTM params, store them
+  utm_fields.forEach((field) => {
+    if (searchParams.has(field)) {
+      utm_data[field] = searchParams.get(field).replace(/[^a-zA-Z0-9\s\-\.\_]/gi, '').substring(0, 100);
+    }
+  })
+
+  if (shouldOverwrite(utm_data, current_utm_data, has_all_params)) {
     eraseCookie("utm_data");
-
-    utm_fields.forEach((field) => {
-      if (searchParams.has(field)) {
-        utm_data[field] = searchParams.get(field).replace(/[^a-zA-Z0-9\s\-\.\_]/gi, '').substring(0, 100);
-      }
-    })
-
+  
     const utm_data_cookie = encodeURI(JSON.stringify(utm_data))
-      .replace(",", "%2C")
+      .replaceAll("%2C", ",")
       .replace("%7B", "{")
       .replace("%7D", "}");
-
+  
     document.cookie = `utm_data=${utm_data_cookie}; domain=${getDomain()}; path=/; SameSite=None; Secure;`;
-  } else {
-    // If the user comes to the site for the first time without any URL params
-    // Only set the utm_data to deriv_direct if the user does not have utm_data cookies stored
-    if (!getCookie("utm_data")) {
-      const utm_source = "deriv_direct";
-
-      utm_data = {
-        ...(utm_source && { utm_source }),
-      };
-
-      const utm_data_cookie = encodeURI(JSON.stringify(utm_data))
-        .replace(",", "%2C")
-        .replace("%7B", "{")
-        .replace("%7D", "}");
-
-      document.cookie = `utm_data=${utm_data_cookie}; domain=${getDomain()}; path=/; SameSite=None; Secure;`;
-    }
   }
+
   /* end handling UTMs */
 
   /* start handling affiliate tracking */
